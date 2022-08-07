@@ -1,21 +1,17 @@
-use std::error;
-use std::fmt;
+use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub mod packet_parsing_errors{
-    use crate::errors::{*};
+    use super::*;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Error)]
+    #[error("Packet should be at least 65 bytes")]
     pub struct TooSmallPacket;
-    impl fmt::Display for TooSmallPacket {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            writeln!(f, "Packet should be at least 65 bytes")
-        }
-    }
-    impl error::Error for TooSmallPacket {}
+    
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Error)]
+    #[error("Unknown packet type: {}", self.ptype)]
     pub struct UknownPType{
         pub ptype:u8
     }
@@ -24,10 +20,4 @@ pub mod packet_parsing_errors{
             UknownPType { ptype:ptype }
         }
     }
-    impl fmt::Display for UknownPType {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            writeln!(f, "Unknown packet type: {}", self.ptype)
-        }
-    }
-    impl error::Error for UknownPType {}
 }
