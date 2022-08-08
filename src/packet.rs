@@ -20,7 +20,7 @@ pub struct Packet {
     pub padding: u8,
     pub checksum: u16,
 
-    pub data: Vec<u8>,
+    pub data: Option<Vec<u8>>,
 }
 
 impl Packet {
@@ -46,7 +46,10 @@ impl Packet {
         let padding: u8 = data[9];
         let checksum: u16 = u16::from_be_bytes(data[10..12].try_into()?);
 
-        let payload = data[12..].to_vec();
+        let payload = match data.len(){
+            HEADER_SIZE => {None},
+            _ => {Some(data[12..].to_vec())}
+        };
 
         Ok(Packet {
             seq,
@@ -74,18 +77,20 @@ impl Packet {
         dump[9] = padding;
 
         let mut checksum: u16 =
-            u16::from_be_bytes(unsafe { dump[0..1].try_into().unwrap_unchecked() });
+            u16::from_be_bytes(unsafe { dump[0..2].try_into().unwrap_unchecked() });
 
         for i in (2..10).step_by(2) {
-            checksum += u16::from_be_bytes(unsafe { dump[i..i + 1].try_into().unwrap_unchecked() })
+            checksum += u16::from_be_bytes(unsafe { dump[i..i + 2].try_into().unwrap_unchecked() })
         }
 
         checksum
     }
 
-    pub fn new(seq: u32, ack: u32, ptype: PType, padding: u8, data: Vec<u8>) -> Result<Packet> {
-        if data.len() > MAX_PACKET_SIZE - HEADER_SIZE {
-            return Err(packet_parsing_errors::TooBigPacket::new(data.len()).into());
+    pub fn new(seq: u32, ack: u32, ptype: PType, padding: u8, data: Option<Vec<u8>>) -> Result<Packet> {
+        if let Some(dt) = data.as_ref() {
+            if dt.len() > MAX_PACKET_SIZE - HEADER_SIZE{
+                return Err(packet_parsing_errors::TooBigPacket::new(dt.len()).into());
+            }
         }
 
         let checksum = Packet::calculate_checksum(seq, ack, ptype, padding);
@@ -108,7 +113,13 @@ impl Packet {
     }
 
     pub fn dump(&self) -> Vec<u8> {
-        let mut to_return: Vec<u8> = Vec::with_capacity(HEADER_SIZE + self.data.len());
+        
+        let mut length = HEADER_SIZE;
+        if self.data.is_some(){
+            length += unsafe{self.data.as_ref().unwrap_unchecked()}.len();
+        }
+
+        let mut to_return: Vec<u8> = Vec::with_capacity(length);
 
         to_return.extend(self.seq.to_be_bytes());
 
@@ -119,6 +130,8 @@ impl Packet {
         to_return.push(self.padding);
 
         to_return.extend(self.checksum.to_be_bytes());
+
+        to_return.extend(unsafe{self.data.as_ref().unwrap_unchecked()});
 
         to_return
     }
