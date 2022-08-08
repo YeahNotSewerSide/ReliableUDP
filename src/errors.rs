@@ -4,7 +4,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub mod packet_parsing_errors {
     use super::*;
-    use crate::reliable_udp::MAX_PACKET_SIZE;
+    use crate::packet::MAX_PACKET_SIZE;
 
     #[derive(Debug, Clone, Error)]
     #[error("Packet should be at least 65 bytes")]
