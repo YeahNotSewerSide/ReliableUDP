@@ -5,7 +5,7 @@ pub const HEADER_SIZE: usize = 14;
 pub const MAX_PACKET_SIZE: usize = 65507;
 
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum PType {
     Syn = 1,
     SynAck,
@@ -114,9 +114,48 @@ impl Header {
         self.header_checksum == calculated_checksum
     }
 
-    pub fn verify_checksum(&self, data:Option<&[u8]>) -> bool{
-        let calculated_checksum = Header::calculate_checksum(self.seq, self.ack, self.ptype, self.header_checksum, data);
+    pub fn verify_checksum(&self, data: Option<&[u8]>) -> bool {
+        let calculated_checksum =
+            Header::calculate_checksum(self.seq, self.ack, self.ptype, self.header_checksum, data);
 
         self.checksum == calculated_checksum
     }
+}
+
+/// needs rewriting
+pub fn packet_to_binary(header: Header, data: Option<&[u8]>) -> Vec<u8> {
+    let mut to_return: Vec<u8>;
+    if data.is_some() {
+        to_return = Vec::with_capacity(HEADER_SIZE + unsafe { data.unwrap_unchecked().len() });
+    } else {
+        to_return = Vec::with_capacity(HEADER_SIZE);
+    }
+
+    for b in header.seq.to_be_bytes() {
+        to_return.push(b);
+    }
+
+    for b in header.ack.to_be_bytes() {
+        to_return.push(b);
+    }
+
+    to_return.push(0);
+
+    to_return.push(header.ptype as u8);
+
+    for b in header.header_checksum.to_be_bytes() {
+        to_return.push(b);
+    }
+
+    for b in header.checksum.to_be_bytes() {
+        to_return.push(b);
+    }
+
+    if data.is_some() {
+        for b in unsafe { data.unwrap_unchecked() } {
+            to_return.push(*b);
+        }
+    }
+
+    to_return
 }
