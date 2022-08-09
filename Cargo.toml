@@ -5,5 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.dev]
+overflow-checks = false
+
 [dependencies]
-thiserror = "1.0.32"
+thiserror = ">=1.0.32"
+tokio = {version = ">=1.20.1", features = ["full"]}

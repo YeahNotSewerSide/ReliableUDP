@@ -1,6 +1,7 @@
+#![allow(arithmetic_overflow)]
 use crate::errors::*;
 
-pub const HEADER_SIZE: usize = 12;
+pub const HEADER_SIZE: usize = 14;
 pub const MAX_PACKET_SIZE: usize = 65507;
 
 #[repr(u8)]
@@ -9,22 +10,21 @@ pub enum PType {
     Syn = 1,
     SynAck,
     Ack,
+    Snd,
     Fin,
 }
 
-pub struct Packet {
+pub struct Header {
     pub seq: u32,
     pub ack: u32,
-
+    // padding 1 byte
     pub ptype: PType,
-    pub padding: u8,
+    pub header_checksum: u16,
     pub checksum: u16,
-
-    pub data: Option<Vec<u8>>,
 }
 
-impl Packet {
-    pub fn parse(data: &[u8]) -> Result<Packet> {
+impl Header {
+    pub fn parse(data: &[u8]) -> Result<Header> {
         if data.len() < HEADER_SIZE {
             return Err(packet_parsing_errors::TooSmallPacket.into());
         } else if data.len() > MAX_PACKET_SIZE {
@@ -35,109 +35,82 @@ impl Packet {
 
         let ack: u32 = u32::from_be_bytes(data[4..8].try_into()?);
 
-        let ptype: PType = match data[8] {
+        let ptype: PType = match data[9] {
             1 => PType::Syn,
             2 => PType::SynAck,
             3 => PType::Ack,
-            4 => PType::Fin,
+            4 => PType::Snd,
+            5 => PType::Fin,
             _ => return Err(packet_parsing_errors::UknownPType::new(data[8]).into()),
         };
 
-        let padding: u8 = data[9];
-        let checksum: u16 = u16::from_be_bytes(data[10..12].try_into()?);
+        let header_checksum: u16 = u16::from_be_bytes(data[10..12].try_into()?);
 
-        let payload = match data.len() {
-            HEADER_SIZE => None,
-            _ => Some(data[12..].to_vec()),
-        };
+        let checksum: u16 = u16::from_be_bytes(data[12..14].try_into()?);
 
-        Ok(Packet {
+        Ok(Header {
             seq,
             ack,
             ptype,
-            padding,
+            header_checksum,
             checksum,
-            data: payload,
         })
     }
 
-    pub fn calculate_checksum(seq: u32, ack: u32, ptype: PType, padding: u8) -> u16 {
-        let mut dump: [u8; HEADER_SIZE - 2] = [0; HEADER_SIZE - 2];
+    pub fn calculate_header_checksum(seq: u32, ack: u32, ptype: PType) -> u16 {
+        let mut checksum: u16 = 0;
 
-        for (b, i) in seq.to_be_bytes().iter().zip(0..4) {
-            dump[i as usize] = *b;
-        }
+        checksum += (seq >> 16) as u16;
+        checksum += seq as u16;
 
-        for (b, i) in ack.to_be_bytes().iter().zip(4..8) {
-            dump[i as usize] = *b;
-        }
+        checksum += (ack >> 16) as u16;
+        checksum += ack as u16;
 
-        dump[8] = ptype as u8;
+        checksum += ptype as u16;
 
-        dump[9] = padding;
+        checksum
+    }
 
-        let mut checksum: u16 =
-            u16::from_be_bytes(unsafe { dump[0..2].try_into().unwrap_unchecked() });
+    pub fn calculate_checksum(
+        seq: u32,
+        ack: u32,
+        ptype: PType,
+        header_checksum: u16,
+        data: Option<&[u8]>,
+    ) -> u16 {
+        let mut checksum: u16 = header_checksum;
 
-        for i in (2..10).step_by(2) {
-            checksum += u16::from_be_bytes(unsafe { dump[i..i + 2].try_into().unwrap_unchecked() })
+        checksum += (seq >> 16) as u16;
+        checksum += seq as u16;
+
+        checksum += (ack >> 16) as u16;
+        checksum += ack as u16;
+
+        checksum += ptype as u16;
+
+        if data.is_some() {
+            let dt = unsafe { data.unwrap_unchecked() };
+
+            if dt.len() % 2 == 0 {
+                for index in (0..dt.len()).step_by(2) {
+                    checksum += (dt[index] as u16) << 8;
+                    checksum += dt[index + 1] as u16;
+                }
+            } else {
+                for index in (0..dt.len() - 1).step_by(2) {
+                    checksum += (dt[index] as u16) << 8;
+                    checksum += dt[index + 1] as u16;
+                }
+                checksum += (dt[dt.len() - 1] as u16) << 8;
+            }
         }
 
         checksum
     }
 
-    pub fn new(
-        seq: u32,
-        ack: u32,
-        ptype: PType,
-        padding: u8,
-        data: Option<Vec<u8>>,
-    ) -> Result<Packet> {
-        if let Some(dt) = data.as_ref() {
-            if dt.len() > MAX_PACKET_SIZE - HEADER_SIZE {
-                return Err(packet_parsing_errors::TooBigPacket::new(dt.len()).into());
-            }
-        }
+    pub fn verify_header_checksum(&self) -> bool {
+        let calculated_checksum = Header::calculate_header_checksum(self.seq, self.ack, self.ptype);
 
-        let checksum = Packet::calculate_checksum(seq, ack, ptype, padding);
-
-        Ok(Packet {
-            seq,
-            ack,
-            ptype,
-            padding,
-            checksum,
-            data,
-        })
-    }
-
-    pub fn verify_checksum(&self) -> bool {
-        let calculated_checksum =
-            Packet::calculate_checksum(self.seq, self.ack, self.ptype, self.padding);
-
-        self.checksum == calculated_checksum
-    }
-
-    pub fn dump(&self) -> Vec<u8> {
-        let mut length = HEADER_SIZE;
-        if self.data.is_some() {
-            length += unsafe { self.data.as_ref().unwrap_unchecked() }.len();
-        }
-
-        let mut to_return: Vec<u8> = Vec::with_capacity(length);
-
-        to_return.extend(self.seq.to_be_bytes());
-
-        to_return.extend(self.ack.to_be_bytes());
-
-        to_return.push(self.ptype as u8);
-
-        to_return.push(self.padding);
-
-        to_return.extend(self.checksum.to_be_bytes());
-
-        to_return.extend(unsafe { self.data.as_ref().unwrap_unchecked() });
-
-        to_return
+        self.header_checksum == calculated_checksum
     }
 }
