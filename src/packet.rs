@@ -10,7 +10,7 @@ pub enum PType {
     Syn = 1,
     SynAck,
     Ack,
-    Snd,
+    Psh,
     Fin,
 }
 
@@ -39,7 +39,7 @@ impl Header {
             1 => PType::Syn,
             2 => PType::SynAck,
             3 => PType::Ack,
-            4 => PType::Snd,
+            4 => PType::Psh,
             5 => PType::Fin,
             _ => return Err(packet_parsing_errors::UknownPType::new(data[8]).into()),
         };
