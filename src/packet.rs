@@ -113,4 +113,10 @@ impl Header {
 
         self.header_checksum == calculated_checksum
     }
+
+    pub fn verify_checksum(&self, data:Option<&[u8]>) -> bool{
+        let calculated_checksum = Header::calculate_checksum(self.seq, self.ack, self.ptype, self.header_checksum, data);
+
+        self.checksum == calculated_checksum
+    }
 }
